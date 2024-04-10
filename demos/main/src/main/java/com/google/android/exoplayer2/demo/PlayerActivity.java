@@ -19,6 +19,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Log;
 import android.util.Pair;
 import android.view.KeyEvent;
 import android.view.View;
@@ -43,6 +44,7 @@ import com.google.android.exoplayer2.ext.ima.ImaAdsLoader;
 import com.google.android.exoplayer2.ext.ima.ImaServerSideAdInsertionMediaSource;
 import com.google.android.exoplayer2.mediacodec.MediaCodecRenderer.DecoderInitializationException;
 import com.google.android.exoplayer2.mediacodec.MediaCodecUtil.DecoderQueryException;
+import com.google.android.exoplayer2.metadata.Metadata;
 import com.google.android.exoplayer2.offline.DownloadRequest;
 import com.google.android.exoplayer2.source.DefaultMediaSourceFactory;
 import com.google.android.exoplayer2.source.MediaSource;
@@ -52,11 +54,12 @@ import com.google.android.exoplayer2.ui.StyledPlayerView;
 import com.google.android.exoplayer2.upstream.DataSource;
 import com.google.android.exoplayer2.util.DebugTextViewHelper;
 import com.google.android.exoplayer2.util.ErrorMessageProvider;
-import com.google.android.exoplayer2.util.EventLogger;
 import com.google.android.exoplayer2.util.Util;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Timer;
+import java.util.TimerTask;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
 /**
@@ -91,6 +94,7 @@ public class PlayerActivity extends AppCompatActivity
   private TrackSelectionParameters trackSelectionParameters;
   private DebugTextViewHelper debugViewHelper;
   private Tracks lastSeenTracks;
+  private CustomEventLogger customEventLogger;
   private boolean startAutoPlay;
   private int startItemIndex;
   private long startPosition;
@@ -285,7 +289,8 @@ public class PlayerActivity extends AppCompatActivity
       player = playerBuilder.build();
       player.setTrackSelectionParameters(trackSelectionParameters);
       player.addListener(new PlayerEventListener());
-      player.addAnalyticsListener(new EventLogger());
+      customEventLogger = new CustomEventLogger();
+      player.addAnalyticsListener(customEventLogger);
       player.setAudioAttributes(AudioAttributes.DEFAULT, /* handleAudioFocus= */ true);
       player.setPlayWhenReady(startAutoPlay);
       playerView.setPlayer(player);
@@ -299,8 +304,34 @@ public class PlayerActivity extends AppCompatActivity
     }
     player.setMediaItems(mediaItems, /* resetPosition= */ !haveStartPosition);
     player.prepare();
+    Timer timer = new Timer();
+    timer.scheduleAtFixedRate(new TimerTask() {
+      @Override
+      public void run() {
+        monitorPlaybackStatus();
+      }
+    }, 0, 1);
     updateButtonVisibility();
     return true;
+  }
+
+  String currentPlayingUri = null;
+
+  private void monitorPlaybackStatus() {
+    runOnUiThread(() -> {
+      ArrayList<TSMediaFile> loadedMedias = customEventLogger.getMediaLoadDatas();
+      long playbackPosition = player.getCurrentPosition();
+      TSMediaFile mediaLoadData = TSMediaFile.findMediaLoadData(loadedMedias, playbackPosition);
+      if (mediaLoadData == null) {
+        return;
+      }
+      // Do something with the playback status
+      // For example, log the current status
+      if (currentPlayingUri == null || !currentPlayingUri.equals(mediaLoadData.getName())) {
+        currentPlayingUri = mediaLoadData.getName();
+        Log.i("TEST_HZ", "Start playing at " + playbackPosition +  " = " + mediaLoadData.toString());
+      }
+    });
   }
 
   private MediaSource.Factory createMediaSourceFactory() {
